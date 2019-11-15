@@ -1,34 +1,37 @@
-#include "openssl/ssl.h"
-#include "openssl/bio.h"
-#include "openssl/err.h"
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
 
-#include "stdio.h"
-#include "string.h"
+#include <stdio.h>
+#include <string.h>
 
 int main()
 {
     BIO * bio;
     int p;
 
-    char * request = "GET / HTTP/1.1\x0D\x0AHost: www.verisign.com\x0D\x0A\x43onnection: Close\x0D\x0A\x0D\x0A";
+    const char * request = "GET / HTTP/1.1\x0D\x0AHost: www.verisign.com\x0D\x0A\x43onnection: Close\x0D\x0A\x0D\x0A";
     char r[1024];
 
     /* Set up the library */
 
-    ERR_load_BIO_strings();
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    SSL_library_init();
+#else
+    OPENSSL_init_ssl(0, NULL);
+#endif
     SSL_load_error_strings();
-    OpenSSL_add_all_algorithms();
 
     /* Create and setup the connection */
 
     bio = BIO_new_connect("www.verisign.com:80");
-    if(bio == NULL) { printf("BIO is null\n"); return; }
+    if(bio == NULL) { printf("BIO is null\n"); return 1; }
 
     if(BIO_do_connect(bio) <= 0)
     {
         ERR_print_errors_fp(stderr);
         BIO_free_all(bio);
-        return;
+        return 1;
     }
 
     /* Send the request */

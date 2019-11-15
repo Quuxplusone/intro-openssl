@@ -9,6 +9,16 @@ can be read [here](http://web.archive.org/web/20150226232908/http://www.ibm.com/
 The files in this repository came from [here](http://www.pudn.com/Download/item/id/651280.html) (pudn.com).
 
 
+## TrustStore.pem
+
+The original "TrustStore.pem" is out-of-date these days, for obvious reasons.
+In this repository I've replaced it with a copy of the Mozilla trust store as of 2019-10-16,
+as downloaded from [curl.haxx.se](https://curl.haxx.se/docs/caextract.html) on 2019-11-15.
+You can refresh it by running this [`curl`](https://linux.die.net/man/1/curl) command:
+
+    curl https://curl.haxx.se/ca/cacert.pem >TrustStore.pem
+
+
 ## Original README
 
 Kenneth Ballard <kballard@kennethballard.com> is not associated in any way

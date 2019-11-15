@@ -1,9 +1,9 @@
-#include "openssl/ssl.h"
-#include "openssl/bio.h"
-#include "openssl/err.h"
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
 
-#include "stdio.h"
-#include "string.h"
+#include <stdio.h>
+#include <string.h>
 
 int main()
 {
@@ -13,18 +13,25 @@ int main()
 
     int p;
 
-    char * request = "GET / HTTP/1.1\x0D\x0AHost: www.verisign.com\x0D\x0A\x43onnection: Close\x0D\x0A\x0D\x0A";
+    const char * request = "GET / HTTP/1.1\x0D\x0AHost: www.verisign.com\x0D\x0A\x43onnection: Close\x0D\x0A\x0D\x0A";
     char r[1024];
 
     /* Set up the library */
 
-    ERR_load_BIO_strings();
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    SSL_library_init();
+#else
+    OPENSSL_init_ssl(0, NULL);
+#endif
     SSL_load_error_strings();
-    OpenSSL_add_all_algorithms();
 
     /* Set up the SSL context */
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     ctx = SSL_CTX_new(SSLv23_client_method());
+#else
+    ctx = SSL_CTX_new(TLS_client_method());
+#endif
 
     /* Load the trust store */
 
@@ -33,7 +40,7 @@ int main()
         fprintf(stderr, "Error loading trust store\n");
         ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
-        return 0;
+        return 1;
     }
 
     /* Setup the connection */
@@ -55,17 +62,17 @@ int main()
         ERR_print_errors_fp(stderr);
         BIO_free_all(bio);
         SSL_CTX_free(ctx);
-        return 0;
+        return 1;
     }
 
     /* Check the certificate */
 
     if(SSL_get_verify_result(ssl) != X509_V_OK)
     {
-        fprintf(stderr, "Certificate verification error: %i\n", SSL_get_verify_result(ssl));
+        fprintf(stderr, "Certificate verification error: %d\n", (int)SSL_get_verify_result(ssl));
         BIO_free_all(bio);
         SSL_CTX_free(ctx);
-        return 0;
+        return 1;
     }
 
     /* Send the request */
