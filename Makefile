@@ -1,7 +1,7 @@
 CFLAGS += $(shell pkg-config --cflags openssl)
 LDFLAGS += $(shell pkg-config --libs openssl)
 
-all: nossl withssl
+all: nossl withssl NEW-withssl-2step
 
 nossl: nossl.c
 	$(CC) $(CFLAGS) -W -Wall -Wextra $^ $(LDFLAGS) -o $@
@@ -9,7 +9,10 @@ nossl: nossl.c
 withssl: withssl.c
 	$(CC) $(CFLAGS) -W -Wall -Wextra $^ $(LDFLAGS) -o $@
 
+NEW-withssl-2step: NEW-withssl-2step.c
+	$(CC) $(CFLAGS) -W -Wall -Wextra $^ $(LDFLAGS) -o $@
+
 clean:
-	rm -f nossl withssl
+	rm -f nossl withssl NEW-withssl-2step
 
 .PHONY: all clean
