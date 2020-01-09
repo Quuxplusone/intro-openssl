@@ -66,8 +66,13 @@ int main()
         return 1;
     }
 
+    /* Setup the buffering filter */
+
+    BIO *buffer_bio = BIO_new(BIO_f_buffer());
+    BIO_push(buffer_bio, underlying_bio);
+
     bio = BIO_new_ssl(ctx, 1);
-    BIO_push(bio, underlying_bio);
+    BIO_push(bio, buffer_bio);
 
     /* Set the SSL_MODE_AUTO_RETRY flag */
 
@@ -100,6 +105,7 @@ int main()
     /* Send the request */
 
     BIO_write(bio, request, strlen(request));
+    BIO_flush(bio);
 
     /* Read in the response */
 
