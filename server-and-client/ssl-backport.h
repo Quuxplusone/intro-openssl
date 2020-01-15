@@ -48,6 +48,9 @@ static inline BIO_METHOD *BIO_meth_new(int type, const char *name)
 #define BIO_meth_set_read(bm, cb) ((bm)->bread = cb)
 #define BIO_meth_set_puts(bm, cb) ((bm)->bputs = cb)
 #define BIO_meth_set_ctrl(bm, cb) ((bm)->ctrl = cb)
+#define BIO_meth_free(bm) free(bm)
+
+#define ASN1_STRING_get0_data(ex) ((const unsigned char *)ASN1_STRING_data(ex))
 
 #ifndef OPENSSL_IS_BORINGSSL
 #define SSL_CTX_up_ref(ctx) CRYPTO_add(&(ctx)->references, 1, CRYPTO_LOCK_SSL_CTX)
