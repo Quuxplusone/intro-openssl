@@ -7,44 +7,16 @@
 #include "ssl-defines.h"
 #include "ssl-util.h"
 
-
 namespace my {
 
-void send_http_request(BIO *bio, const std::string& path, const std::string& host)
+void send_http_request(BIO *bio, const std::string& line, const std::string& host)
 {
-    std::string request = "GET " + path + " HTTP/1.1\r\n";
+    std::string request = line + "\r\n";
     request += "Host: " + host + "\r\n";
-    request += "Connection: Close\r\n";
     request += "\r\n";
 
     BIO_write(bio, request.data(), request.size());
     BIO_flush(bio);
-}
-
-std::string receive_http_response(BIO *bio)
-{
-    std::string headers = my::receive_some_data(bio);
-    const char *end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
-    while (end_of_headers == nullptr) {
-        headers += my::receive_some_data(bio);
-        end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
-    }
-    std::string body = std::string(end_of_headers+4, (const char *)&headers[headers.size()]);
-    headers.resize(end_of_headers+2 - &headers[0]);
-    size_t content_length = 0;
-    for (const std::string& line : my::split_headers(headers)) {
-        if (const char *colon = strchr(line.c_str(), ':')) {
-            std::string header_name = std::string(&line[0], colon);
-            if (header_name == "Content-Length") {
-                do { ++colon; } while (isspace(*colon));
-                content_length = std::stoul(colon);
-            }
-        }
-    }
-    while (body.size() < content_length) {
-        body += my::receive_some_data(bio);
-    }
-    return headers + "\r\n" + body;
 }
 
 void verify_the_certificate(SSL *ssl, const std::string& expected_hostname)
@@ -100,22 +72,19 @@ int main()
         my::print_errors_and_exit("Error in BIO_do_connect on connect BIO");
     }
 
-    /* Set up the TLS filter */
+    /* Set up the TLS filter and create the TLS connection */
 
-    auto bio = my::UniquePtr<BIO>(BIO_new_ssl(ctx.get(), 1));
-    BIO_push(bio.get(), underlying_bio.release());
-
-    /* Create the TLS connection */
-
+    auto bio = std::move(underlying_bio)
+        | my::UniquePtr<BIO>(BIO_new_ssl(ctx.get(), 1))
+        ;
     if (BIO_do_connect(bio.get()) <= 0) {
         my::print_errors_and_exit("Error in BIO_do_connect on SSL BIO");
     }
-
     my::verify_the_certificate(my::get_ssl(bio.get()), MY_SERVER_HOSTNAME);
 
-    my::send_http_request(bio.get(), "/", MY_SERVER_HOSTNAME);
+    /* Perform the HTTPS transaction */
 
-    std::string response = my::receive_http_response(bio.get());
-
+    my::send_http_request(bio.get(), "GET / HTTP/1.1", MY_SERVER_HOSTNAME);
+    std::string response = my::receive_http_message(bio.get());
     printf("%s", response.c_str());
 }

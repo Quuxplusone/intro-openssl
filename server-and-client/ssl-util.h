@@ -87,29 +87,25 @@ inline SSL *get_ssl(BIO *bio)
     return ssl;
 }
 
+inline my::UniquePtr<BIO> operator|(my::UniquePtr<BIO> lower, my::UniquePtr<BIO> upper)
+{
+    BIO_push(upper.get(), lower.release());
+    return upper;
+}
+
 inline std::string receive_some_data(BIO *bio)
 {
-    std::string result = "";
-    do {
-        char buffer[1024];
-        int len = BIO_read(bio, buffer, sizeof(buffer));
-        if (len < 0) {
-            my::print_errors_and_throw("error in BIO_read");
-        } else if (len == 0) {
-            if (BIO_should_retry(bio)) {
-                continue;
-            }
-            if (result.empty()) {
-                my::print_errors_and_throw("empty BIO_read");
-            }
-        } else {
-            result.append(buffer, len);
-            if (BIO_pending(bio)) {
-                continue;
-            }
-        }
-    } while (false);
-    return result;
+    char buffer[1024];
+    int len = BIO_read(bio, buffer, sizeof(buffer));
+    if (len < 0) {
+        my::print_errors_and_throw("error in BIO_read");
+    } else if (len > 0) {
+        return std::string(buffer, len);
+    } else if (BIO_should_retry(bio)) {
+        return receive_some_data(bio);
+    } else {
+        my::print_errors_and_throw("empty BIO_read");
+    }
 }
 
 inline std::vector<std::string> split_headers(const std::string& text)
@@ -121,6 +117,32 @@ inline std::vector<std::string> split_headers(const std::string& text)
         start = end + 2;
     }
     return lines;
+}
+
+inline std::string receive_http_message(BIO *bio)
+{
+    std::string headers = my::receive_some_data(bio);
+    const char *end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
+    while (end_of_headers == nullptr) {
+        headers += my::receive_some_data(bio);
+        end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
+    }
+    std::string body = std::string(end_of_headers+4, (const char *)&headers[headers.size()]);
+    headers.resize(end_of_headers+2 - &headers[0]);
+    size_t content_length = 0;
+    for (const std::string& line : my::split_headers(headers)) {
+        if (const char *colon = strchr(line.c_str(), ':')) {
+            std::string header_name = std::string(&line[0], colon);
+            if (header_name == "Content-Length") {
+                do { ++colon; } while (isspace(*colon));
+                content_length = std::stoul(colon);
+            }
+        }
+    }
+    while (body.size() < content_length) {
+        body += my::receive_some_data(bio);
+    }
+    return headers + "\r\n" + body;
 }
 
 } // namespace my

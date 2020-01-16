@@ -14,34 +14,7 @@
 #include "ssl-defines.h"
 #include "ssl-util.h"
 
-
 namespace my {
-
-std::string receive_http_request(BIO *bio)
-{
-    std::string headers = my::receive_some_data(bio);
-    const char *end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
-    while (end_of_headers == nullptr) {
-        headers += my::receive_some_data(bio);
-        end_of_headers = strstr(headers.c_str(), "\r\n\r\n");
-    }
-    std::string body = std::string(end_of_headers+4, (const char *)&headers[headers.size()]);
-    headers.resize(end_of_headers+2 - &headers[0]);
-    size_t content_length = 0;
-    for (const std::string& line : my::split_headers(headers)) {
-        if (const char *colon = strchr(line.c_str(), ':')) {
-            std::string header_name = std::string(&line[0], colon);
-            if (header_name == "Content-Length") {
-                do { ++colon; } while (isspace(*colon));
-                content_length = std::stoul(colon);
-            }
-        }
-    }
-    while (body.size() < content_length) {
-        body += my::receive_some_data(bio);
-    }
-    return headers + "\r\n" + body;
-}
 
 void send_http_response(BIO *bio, const std::string& body)
 {
@@ -56,18 +29,25 @@ void send_http_response(BIO *bio, const std::string& body)
 
 void worker_thread(my::UniquePtr<BIO> bio, SSL_CTX *inner_ctx)
 {
-    std::string request = my::receive_http_request(bio.get());
+    /* Perform an HTTPS transaction (not necessary, just for show) */
+
+    std::string request = my::receive_http_message(bio.get());
     printf("Got outer request:\n");
     printf("%s\n", request.c_str());
     my::send_http_response(bio.get(), "");
 
-    auto inner_bio = my::UniquePtr<BIO>(BIO_new_ssl(inner_ctx, 0));
-    BIO_push(inner_bio.get(), bio.release());
+    /* Set up a second TLS filter and create the inner TLS connection */
 
-    request = my::receive_http_request(inner_bio.get());
+    auto inner_bio = std::move(bio)
+        | my::UniquePtr<BIO>(BIO_new_ssl(inner_ctx, 0))
+        ;
+
+    /* Perform another HTTP transaction over the now-double-encrypted connection */
+
+    request = my::receive_http_message(inner_bio.get());
     printf("Got inner request:\n");
     printf("%s\n", request.c_str());
-    my::send_http_response(inner_bio.get(), "okay cool");
+    my::send_http_response(inner_bio.get(), "tubular\n");
 }
 
 my::UniquePtr<BIO> accept_new_tcp_connection(BIO *accept_bio, bool *quit)
@@ -98,9 +78,6 @@ int main()
     std::shared_ptr<SSL_CTX> inner_ctx = my::UniquePtr<SSL_CTX>(SSL_CTX_new(TLS_method()));
 #endif
 
-    if (!SSL_CTX_load_verify_locations(ctx.get(), "server-trust-store.pem", nullptr)) {
-        my::print_errors_and_exit("Error loading trust store");
-    }
     if (SSL_CTX_use_certificate_file(ctx.get(), "server-certificate.pem", SSL_FILETYPE_PEM) <= 0) {
         my::print_errors_and_exit("Error loading server certificate");
     }
@@ -108,9 +85,6 @@ int main()
         my::print_errors_and_exit("Error loading server private key");
     }
 
-    if (!SSL_CTX_load_verify_locations(inner_ctx.get(), "server-trust-store.pem", nullptr)) {
-        my::print_errors_and_exit("Error loading trust store");
-    }
     if (SSL_CTX_use_certificate_file(inner_ctx.get(), "inner-server-certificate.pem", SSL_FILETYPE_PEM) <= 0) {
         my::print_errors_and_exit("Error loading inner server certificate");
     }
@@ -125,28 +99,26 @@ int main()
     if (accept_bio == nullptr) {
         my::print_errors_and_exit("Error in BIO_new_accept");
     }
-
-    BIO_set_close(accept_bio.get(), 1);
-
     if (BIO_do_accept(accept_bio.get()) <= 0) {
         my::print_errors_and_exit("Error in BIO_do_accept (binding to port %d)", MY_SERVER_PORT);
     }
 
-    /* Set up a signal handler so that when you Ctrl-C the server program,
-     * it will quickly relinquish the socket it was using.
-     */
+    /* Set up a Ctrl-C signal handler for clean shutdowns */
+
     bool quit = false;
     static auto shutdown_the_socket = [&]() {
         int fd = BIO_get_fd(accept_bio.get(), nullptr);
-        BIO_set_close(accept_bio.get(), 0);
-        close(fd);
         quit = true;
+        close(fd);
     };
     signal(SIGINT, +[](int) { shutdown_the_socket(); });
 
+    /* The main server loop */
+
     while (auto client_bio = my::accept_new_tcp_connection(accept_bio.get(), &quit)) {
-        auto ssl_bio = my::UniquePtr<BIO>(BIO_new_ssl(ctx.get(), 0));
-        BIO_push(ssl_bio.get(), client_bio.release());
+        auto ssl_bio = std::move(client_bio)
+            | my::UniquePtr<BIO>(BIO_new_ssl(ctx.get(), 0))
+            ;
 
         std::thread([ssl_bio = std::move(ssl_bio), inner_ctx]() mutable {
             try {
