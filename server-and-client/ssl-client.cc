@@ -77,6 +77,7 @@ int main()
     auto bio = std::move(underlying_bio)
         | my::UniquePtr<BIO>(BIO_new_ssl(ctx.get(), 1))
         ;
+    SSL_set_tlsext_host_name(my::get_ssl(bio.get()), MY_SERVER_HOSTNAME);
     if (BIO_do_connect(bio.get()) <= 0) {
         my::print_errors_and_exit("Error in BIO_do_connect on SSL BIO");
     }
